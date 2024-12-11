@@ -25,8 +25,8 @@ with adapt_precision(model) as ad_model:
 
 `ad_model` wraps over your model, quantizes it, and then keeps note of which
 original layers contributes the most to perplexity and keeps those. When resources
-free up, it swaps the quantized layer with the higher-precision one, and swaps back
-to the quantized layer when resources are low.
+free up, it swaps quantized layers with the higher-precision ones, and swaps back
+to the quantized layers when resources are low.
 
 ## Installation
 
