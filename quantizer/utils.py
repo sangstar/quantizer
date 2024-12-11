@@ -39,7 +39,7 @@ class SwitchLayer:
         return layer, self.data[layer][quant_or_unquant]
 
 
-def replace_module(module, new_module, layer_prefix):
+def replace_module(module: nn.Module, new_module: nn.Module, layer_prefix: str):
     """
     Replaces module with new_module. Assumes module represents a torch model
     before this is called recursively. If the new_module is replacing the same
@@ -50,7 +50,9 @@ def replace_module(module, new_module, layer_prefix):
     _replace_module(module, new_module, next(prefixes), prefixes)
 
 
-def _replace_module(module, new_module, subprefix, layer_prefix):
+def _replace_module(
+        module: nn.Module, new_module: nn.Module, subprefix: str, layer_prefix: str
+):
     is_linear = lambda obj: isinstance(obj, nn.Linear) or isinstance(obj, nnq.Linear)
     attr = getattr(module, subprefix, None)
     if is_linear(module):
@@ -65,7 +67,7 @@ def _replace_module(module, new_module, subprefix, layer_prefix):
         return _replace_module(attr, new_module, new_prefix, layer_prefix)
 
 
-def get_linear_type(quant_or_unquant_model, prefix):
+def get_linear_type(quant_or_unquant_model: str, prefix: str):
     modules = prefix.split(".")
     parent = quant_or_unquant_model
     for name in modules:

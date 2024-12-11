@@ -6,7 +6,6 @@ from quantizer import adapt_precision
 
 def main():
     model_ref = "EleutherAI/pythia-160m"
-    torch.backends.quantized.engine = "qnnpack"
     model = AutoModelForCausalLM.from_pretrained(model_ref)
 
     shape = (3, 40)  # batch_size, seq_len

@@ -13,7 +13,7 @@ from torcheval.metrics.functional.text import perplexity
 from transformers import AutoTokenizer
 from transformers import PreTrainedTokenizerFast
 
-from utils import get_linear_type, replace_module, SwitchLayer
+from quantizer.utils import get_linear_type, replace_module, SwitchLayer
 
 
 @dataclass
@@ -52,6 +52,9 @@ class AdaptiveQuantizer:
             {k: copy.deepcopy(mod) for k, mod in self.model.named_modules()}
         )
 
+        # This seems to be needed
+        torch.backends.quantized.engine = "qnnpack"
+
         self.quantized_model = torch.quantization.quantize_dynamic(
             self.model, {nn.Linear}, dtype=torch.qint8, inplace=True
         )
@@ -71,7 +74,7 @@ class AdaptiveQuantizer:
 
         self.get_swap_sensitivities()
 
-    def try_map_to_quantized_layer(self, prefix):
+    def try_map_to_quantized_layer(self, prefix: str):
 
         if prefix.endswith("._packed_params"):
             # This is a nested _packed_params
@@ -102,7 +105,7 @@ class AdaptiveQuantizer:
                 if quant_or_unquant == "unquantized":
                     _validate_layer(self._model_module_dict, {k: layer})
 
-    def swap_precisions(self, layer_prefix):
+    def swap_precisions(self, layer_prefix: str):
 
         want_quant_or_unquant = get_linear_type(self.quantized_model, layer_prefix)
         module_to_replace = self.quant_mappings[layer_prefix][want_quant_or_unquant]
@@ -124,7 +127,7 @@ class AdaptiveQuantizer:
             perp += perplexity(logits, targets)
         return perp.item()
 
-    def _get_dotted_attr(self, model, layer_prefix):
+    def _get_dotted_attr(self, model: nn.Module, layer_prefix: str):
         modules = layer_prefix.split(".")
         parent = model
         for name in modules:
