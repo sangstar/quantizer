@@ -1,0 +1,23 @@
+[project]
+name = "quantizer"
+version = "0.1.0"
+description = "Adaptive quantization for torch modules"
+readme = "README.md"
+authors = [
+    { name = "Sanger Steel", email = "sangersteel@gmail.com" }
+]
+license = { text = "MIT License" }
+requires-python = ">=3.9"
+keywords = ["machine learning", "quantization", "pytorch", "transformers"]
+dependencies = [
+    "torch>=2.5.1",
+    "transformers>=4.47.0"
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
