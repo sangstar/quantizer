@@ -16,6 +16,7 @@ from transformers import AutoTokenizer
 
 SwitchLayerData: OrderedDict[str, nn.Module]
 
+
 @dataclass
 class _SwitchLayer:
     """
@@ -32,6 +33,7 @@ class _SwitchLayer:
     to ascend the dictionary, while quantized-unquantized swaps can
     descend the dictionary, fetched in highest-priority order for both
     """
+
     data: SwitchLayerData
 
     def __post_init__(self):
@@ -67,6 +69,7 @@ class AdaptiveQuantizer:
     baseline. When the adaptive quantized model is then called, it will automatically
     swap between unquantized and quantized layers to optimize resource usage.
     """
+
     model: nn.Module
     tokenizer: PreTrainedTokenizerFast = None
     dataset: Dataset = None
@@ -118,8 +121,6 @@ class AdaptiveQuantizer:
         self.quant_mappings[prefix]["quantized"] = self._quantized_model_module_dict[
             f"{prefix}"
         ]
-
-        return
 
     def _validate_quant_mappings(self):
 
