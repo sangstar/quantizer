@@ -14,17 +14,31 @@ from torcheval.metrics.functional.text import perplexity
 from transformers import AutoModelForCausalLM, PreTrainedTokenizerFast
 from transformers import AutoTokenizer
 
+SwitchLayerData: OrderedDict[str, nn.Module]
 
 @dataclass
-class SwitchLayer:
-    data: OrderedDict
+class _SwitchLayer:
+    """
+    A class that non-destructively fetches the first or last
+    element in `data` when called with `fetch`.
+
+    `data` in this case specifically is constructed such that
+    module layers are ordered by how much that layer quantized
+    affects perplexity compared to a fully quantized model.
+    The most substantial layers, where quantizing most hinders
+    perplexity, are placed first in descending order.
+
+    The logic implemented here, allows unquantized-quantized swaps
+    to ascend the dictionary, while quantized-unquantized swaps can
+    descend the dictionary, fetched in highest-priority order for both
+    """
+    data: SwitchLayerData
 
     def __post_init__(self):
         self.quant_iter = reversed(self.data)
         self.unquant_iter = iter(self.data)
 
-    def tail(self, quant_or_unquant: str):
-        to_return = {}
+    def fetch(self, quant_or_unquant: str):
         if quant_or_unquant == "quantized":
             layer = next(self.quant_iter)
             return layer, self.data[layer]["quantized"]
@@ -39,6 +53,20 @@ class SwitchLayer:
 
 @dataclass
 class AdaptiveQuantizer:
+    """
+    Main helper class for adaptive quantization.
+
+    `model` is quantized dynamically using `torch.quantization.quantize_dynamic`
+    in place. The original unquantized modules are ephemerally preserved along
+    with the quantized model's new `.named_modules()`.
+
+    Mappings are created between the quantized and unquantized layers, and
+    perplexities are calculated when each quantized layer is swapped to unquantized.
+
+    Layers are scored based off of their perplexities compared to the fully-quantized
+    baseline. When the adaptive quantized model is then called, it will automatically
+    swap between unquantized and quantized layers to optimize resource usage.
+    """
     model: nn.Module
     tokenizer: PreTrainedTokenizerFast = None
     dataset: Dataset = None
@@ -190,13 +218,13 @@ class AdaptiveQuantizer:
         # This dict will order all quantizable layers in order of "sensitivity"
         # to precision (defined by how much perplexity is improved by unquantizing
         # a layer). Least sensitive (where quantizing will incur the least drawback)
-        # is intentionally placed at the end to popitem() from when swapping a layer
+        # is intentionally placed at the end to fetch from when swapping a layer
         switch_layers = OrderedDict()
 
         # Finally, only retain the kept layers in memory of the higher precision model
         for k, v in keep_layers.items():
             switch_layers[k] = copy.deepcopy(self.quant_mappings[k])
-        self.switch_layers = SwitchLayer(switch_layers)
+        self.switch_layers = _SwitchLayer(switch_layers)
         del self._model_module_dict
         del self.quant_mappings
         delattr(self, "model")
@@ -208,14 +236,14 @@ class AdaptiveQuantizer:
         ##  performs
         cpu_percent = psutil.cpu_percent()
         if cpu_percent > self.quant_threshold:
-            layer_prefix, layer = self.switch_layers.tail("quantized")
+            layer_prefix, layer = self.switch_layers.fetch("quantized")
             prefixes = iter(layer_prefix.split("."))
 
             # Switch to quantized layer
             replace_module(self.quantized_model, layer, next(prefixes), prefixes)
 
         if cpu_percent < self.unquant_threshold:
-            layer_prefix, layer = self.switch_layers.tail("unquantized")
+            layer_prefix, layer = self.switch_layers.fetch("unquantized")
             prefixes = iter(layer_prefix.split("."))
 
             # Switch to unquantized layer
