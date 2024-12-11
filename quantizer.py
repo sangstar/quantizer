@@ -119,13 +119,6 @@ class AdaptiveQuantizer:
             f"{prefix}"
         ]
 
-        # Unnecessary as this is contained in the quantized layer
-        # _try_append(
-        #     self.quant_mappings[prefix]["quantized"],
-        #     self.quantized_model_module_dict,
-        #     f"{prefix}._packed_params",
-        # )
-
         return
 
     def _validate_quant_mappings(self):
@@ -161,13 +154,6 @@ class AdaptiveQuantizer:
             full_inp = self.tokenizer(datum["text"], return_tensors="pt")
             input_ids = full_inp["input_ids"]
 
-            # Need to do this on quantized_model
-
-            # When evaluating auto-regressively, we model's __call__ method
-            # expects the entire sequence in the input tensor, does a forward pass
-            # on every token in the sequence autoregressively, and gets the logits
-            # at each token index. We ignore the last set of logits because we have
-            # no golden label for the last idx
             logits = self.quantized_model(input_ids).logits[:, :-1, :]
 
             # Targets are shifted by one, since loss functions here will expect
