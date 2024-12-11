@@ -3,6 +3,7 @@ import gc
 from collections import OrderedDict
 from contextlib import contextmanager
 from dataclasses import dataclass
+from itertools import cycle
 
 import psutil
 import torch
@@ -14,7 +15,7 @@ from torcheval.metrics.functional.text import perplexity
 from transformers import AutoModelForCausalLM, PreTrainedTokenizerFast
 from transformers import AutoTokenizer
 
-SwitchLayerData: OrderedDict[str, nn.Module]
+SwitchLayerData = OrderedDict[str, nn.Module]
 
 
 @dataclass
@@ -41,20 +42,11 @@ class _SwitchLayer:
     data: SwitchLayerData
 
     def __post_init__(self):
-        self.quant_iter = reversed(self.data)
-        self.unquant_iter = iter(self.data)
+        self.iter = cycle(self.data)
 
     def fetch(self, quant_or_unquant: str):
-        if quant_or_unquant == "quantized":
-            layer = next(self.quant_iter)
-            return layer, self.data[layer]["quantized"]
-        elif quant_or_unquant == "unquantized":
-            # Iterate from first-to-last since first layers are most beneficial
-            # to unquantize
-            layer = next(self.unquant_iter)
-            return layer, self.data[layer]["unquantized"]
-        else:
-            raise ValueError("quant_or_unquant must be quantized or unquantized.")
+        layer = next(self.iter)
+        return layer, self.data[layer][quant_or_unquant]
 
 
 @dataclass
@@ -147,10 +139,7 @@ class AdaptiveQuantizer:
 
         want_quant_or_unquant = get_linear_type(self.quantized_model, layer_prefix)
         module_to_replace = self.quant_mappings[layer_prefix][want_quant_or_unquant]
-        prefixes = iter(layer_prefix.split("."))
-        replace_module(
-            self.quantized_model, module_to_replace, next(prefixes), prefixes
-        )
+        replace_module(self.quantized_model, module_to_replace, layer_prefix)
 
     def get_perplexity(self):
         perp = 0
@@ -194,16 +183,12 @@ class AdaptiveQuantizer:
             after_layer = self._get_dotted_attr(self.quantized_model, layer_prefix)
             assert original_layer == after_layer
 
-        # Unquantize the model
-        for layer_prefix in self.quant_mappings:
-            self.swap_precisions(layer_prefix)
-
         keep_layers = {
             k: v
             for k, v in sorted(
                 perplexity_by_swap.items(), key=lambda item: item[1], reverse=True
             )
-            if v < cutoff_percentage * baseline
+            if v > cutoff_percentage * baseline
         }
 
         # This dict will order all quantizable layers in order of "sensitivity"
@@ -228,17 +213,15 @@ class AdaptiveQuantizer:
         cpu_percent = psutil.cpu_percent()
         if cpu_percent > self.quant_threshold:
             layer_prefix, layer = self.switch_layers.fetch("quantized")
-            prefixes = iter(layer_prefix.split("."))
 
             # Switch to quantized layer
-            replace_module(self.quantized_model, layer, next(prefixes), prefixes)
+            replace_module(self.quantized_model, layer, layer_prefix)
 
         if cpu_percent < self.unquant_threshold:
             layer_prefix, layer = self.switch_layers.fetch("unquantized")
-            prefixes = iter(layer_prefix.split("."))
 
             # Switch to unquantized layer
-            replace_module(self.quantized_model, layer, next(prefixes), prefixes)
+            replace_module(self.quantized_model, layer, layer_prefix)
 
         self.quantized_model(*args, **kwargs)
 
@@ -247,21 +230,30 @@ def quantize_layers(model: nn.Module, key: str):
     raise NotImplementedError
 
 
-def replace_module(module, new_module, subprefix, layer_prefix):
+def replace_module(module, new_module, layer_prefix):
     """
     Replaces module with new_module. Assumes module represents a torch model
-    before this is called recursively.
+    before this is called recursively. If the new_module is replacing the same
+    type, this is a no-op.
     """
+    prefixes = iter(layer_prefix.split("."))
+
+    _replace_module(module, new_module, next(prefixes), prefixes)
+
+
+def _replace_module(module, new_module, subprefix, layer_prefix):
     is_linear = lambda obj: isinstance(obj, nn.Linear) or isinstance(obj, nnq.Linear)
+    attr = getattr(module, subprefix, None)
     if is_linear(module):
         return
-    elif is_linear(getattr(module, subprefix, None)):
-        setattr(module, subprefix, new_module)
+    elif is_linear(attr):
+        if not type(attr) == type(new_module):
+            setattr(module, subprefix, new_module)
+        else:
+            return
     else:
         new_prefix = next(layer_prefix)
-        return replace_module(
-            getattr(module, subprefix, None), new_module, new_prefix, layer_prefix
-        )
+        return _replace_module(attr, new_module, new_prefix, layer_prefix)
 
 
 def get_linear_type(quant_or_unquant_model, prefix):
