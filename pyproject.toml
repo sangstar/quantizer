@@ -14,7 +14,7 @@ dependencies = [
     "transformers>=4.47.0",
     "psutil>=6.1.0",
     "datasets>=3.1.0",
-    "torcheval==0.0.7"
+    "torcheval>=0.0.7"
 ]
 
 [build-system]
