@@ -171,6 +171,8 @@ class AdaptiveQuantizer:
         for k, v in keep_layers.items():
             switch_layers[k] = copy.deepcopy(self.quant_mappings[k])
         self.switch_layers = SwitchLayer(switch_layers)
+
+        # TODO: Need some way of confirming this memory is actually being freed
         del self._model_module_dict
         del self.quant_mappings
         delattr(self, "model")
