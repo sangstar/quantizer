@@ -31,7 +31,11 @@ class _SwitchLayer:
 
     The logic implemented here, allows unquantized-quantized swaps
     to ascend the dictionary, while quantized-unquantized swaps can
-    descend the dictionary, fetched in highest-priority order for both
+    descend the dictionary, fetched in highest-priority order for both.
+
+    Some source of samples need to be fed to the model to generate
+    perplexity scores. A `dataset` can be provided to accomplish this,
+    which is chosen arbitrary if not set explicitly.
     """
 
     data: SwitchLayerData
@@ -70,12 +74,12 @@ class AdaptiveQuantizer:
     swap between unquantized and quantized layers to optimize resource usage.
     """
 
-    model: nn.Module
-    tokenizer: PreTrainedTokenizerFast = None
-    dataset: Dataset = None
-    quant_threshold: int = 60
-    unquant_threshold: int = 40
-    n: int = 5
+    model: nn.Module  # Model to adaptively quantize
+    tokenizer: PreTrainedTokenizerFast = None  # Tokenizer for `dataset`
+    dataset: Dataset = None  # Dataset to provide samples for perplexity scores
+    quant_threshold: int = 60  # Resource usage threshold for swapping to quantized
+    unquant_threshold: int = 40  # Resource usage threshold for swapping to unquantized
+    n: int = 5  # Number of dataset samples for perplexity scores
 
     def __post_init__(self):
         if not self.tokenizer:
