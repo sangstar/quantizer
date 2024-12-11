@@ -1,3 +1,6 @@
 torch==2.5.1
 transformers==4.47.0
+psutil==6.1.0
+datasets==3.1.0 # This is unnecessary and will be removed eventually
+torcheval==0.0.7 # Likely redundant since torch can be used to calculate perplexity
 

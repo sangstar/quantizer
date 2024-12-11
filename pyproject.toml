@@ -11,7 +11,10 @@ requires-python = ">=3.9"
 keywords = ["machine learning", "quantization", "pytorch", "transformers"]
 dependencies = [
     "torch>=2.5.1",
-    "transformers>=4.47.0"
+    "transformers>=4.47.0",
+    "psutil>=6.1.0",
+    "datasets>=3.1.0",
+    "torcheval==0.0.7"
 ]
 
 [build-system]
