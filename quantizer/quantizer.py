@@ -6,12 +6,8 @@ from dataclasses import dataclass
 
 import psutil
 import torch
-from datasets import load_dataset
 from torch import nn
-from torch.utils.data import Dataset
 from torcheval.metrics.functional.text import perplexity
-from transformers import AutoTokenizer
-from transformers import PreTrainedTokenizerFast
 
 from quantizer.utils import get_linear_type, replace_module, SwitchLayer
 
@@ -34,19 +30,14 @@ class AdaptiveQuantizer:
     """
 
     model: nn.Module  # Model to adaptively quantize
-    tokenizer: PreTrainedTokenizerFast = None  # Tokenizer for `dataset`
-    dataset: Dataset = None  # Dataset to provide samples for perplexity scores
     quant_threshold: int = 60  # Resource usage threshold for swapping to quantized
     unquant_threshold: int = 40  # Resource usage threshold for swapping to unquantized
-    n: int = 5  # Number of dataset samples for perplexity scores
+    cutoff_percentage: float = 0.1
+    n_samples: int = 5  # Number of dataset samples for perplexity scores
 
     def __post_init__(self):
-        if not self.tokenizer:
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model.name_or_path)
-        if not self.dataset:
-            self.dataset = load_dataset(
-                "ag_news", split="train"
-            )  # Train split for calibration
+        self._accumulating_prompts = True
+        self.training_input_ids = []
 
         self._model_module_dict = OrderedDict(
             {k: copy.deepcopy(mod) for k, mod in self.model.named_modules()}
@@ -71,8 +62,6 @@ class AdaptiveQuantizer:
             prefix = key.rpartition(".")[0]
             self.try_map_to_quantized_layer(prefix)
         self._validate_quant_mappings()
-
-        self.get_swap_sensitivities()
 
     def try_map_to_quantized_layer(self, prefix: str):
 
@@ -113,16 +102,12 @@ class AdaptiveQuantizer:
 
     def get_perplexity(self):
         perp = 0
-        for i in range(self.n):
-            datum = self.dataset[i]
-            full_inp = self.tokenizer(datum["text"], return_tensors="pt")
-            input_ids = full_inp["input_ids"]
-
-            logits = self.quantized_model(input_ids).logits[:, :-1, :]
+        for input_id in self.training_input_ids:
+            logits = self.quantized_model(input_id)["logits"][:, :-1, :]
 
             # Targets are shifted by one, since loss functions here will expect
             # the gold label at token index idx.
-            targets = input_ids[:, 1:]
+            targets = input_id[:, 1:]
 
             perp += perplexity(logits, targets)
         return perp.item()
@@ -134,7 +119,7 @@ class AdaptiveQuantizer:
             parent = getattr(parent, name)
         return parent
 
-    def get_swap_sensitivities(self, cutoff_percentage: int = 0.1):
+    def get_swap_sensitivities(self):
         perplexity_by_swap = OrderedDict()
 
         # Assumes the model is entirely quantized here
@@ -158,7 +143,7 @@ class AdaptiveQuantizer:
             for k, v in sorted(
                 perplexity_by_swap.items(), key=lambda item: item[1], reverse=True
             )
-            if v > cutoff_percentage * baseline
+            if v > self.cutoff_percentage * baseline
         }
 
         # This dict will order all quantizable layers in order of "sensitivity"
@@ -179,28 +164,39 @@ class AdaptiveQuantizer:
         gc.collect()
 
     def __call__(self, *args, **kwargs):
-        ## TODO: Additionally, possibly allow perplexity calculations
-        ##  to be built off of the forward passes this call method
-        ##  performs
-        cpu_percent = psutil.cpu_percent()
-        if cpu_percent > self.quant_threshold:
-            layer_prefix, layer = self.switch_layers.fetch("quantized")
 
-            # Switch to quantized layer
-            replace_module(self.quantized_model, layer, layer_prefix)
+        if len(self.training_input_ids) == self.n_samples:
+            self.get_swap_sensitivities()
+            self._accumulating_prompts = False
 
-        if cpu_percent < self.unquant_threshold:
-            layer_prefix, layer = self.switch_layers.fetch("unquantized")
+        output = self.quantized_model(*args, **kwargs)
 
-            # Switch to unquantized layer
-            replace_module(self.quantized_model, layer, layer_prefix)
+        if self._accumulating_prompts:
+            # TODO: Add caching the logits of the fully quantized model so you
+            #  don't need to calculate it again. You're throwing away logits
+            #  until it accumulates
+            self.training_input_ids.append(args[0])
+            return output
+        else:
+            cpu_percent = psutil.cpu_percent()
+            if cpu_percent > self.quant_threshold:
+                layer_prefix, layer = self.switch_layers.fetch("quantized")
 
-        self.quantized_model(*args, **kwargs)
+                # Switch to quantized layer
+                replace_module(self.quantized_model, layer, layer_prefix)
+
+            if cpu_percent < self.unquant_threshold:
+                layer_prefix, layer = self.switch_layers.fetch("unquantized")
+
+                # Switch to unquantized layer
+                replace_module(self.quantized_model, layer, layer_prefix)
+
+            return output
 
 
 @contextmanager
-def adapt_precision(model: nn.Module):
-    ad_model = AdaptiveQuantizer(model)
+def adapt_precision(model: nn.Module, *args, **kwargs):
+    ad_model = AdaptiveQuantizer(model, *args, **kwargs)
     try:
         yield ad_model
     finally:
