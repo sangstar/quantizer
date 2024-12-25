@@ -32,7 +32,9 @@ class AdaptiveQuantizer:
     model: nn.Module  # Model to adaptively quantize
     quant_threshold: int = 60  # Resource usage threshold for swapping to quantized
     unquant_threshold: int = 40  # Resource usage threshold for swapping to unquantized
-    cutoff_percentage: float = 0.1
+    cutoff_percentage: float = (
+        0.1  # The minimum percentage decrease over baseline perplexity for swapping
+    )
     n_samples: int = 5  # Number of dataset samples for perplexity scores
 
     def __post_init__(self):

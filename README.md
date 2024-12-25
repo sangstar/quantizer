@@ -5,7 +5,7 @@ Adaptive quantization for `torch.nn` modules
 ## How It Works
 
 `quantizer` can be used simply with the function `adapt_precision` as a context manager for
-your `torch` model, as shown in the `adaptive_quantized_model` example script:
+your `torch` model:
 
 ```python
 import torch
@@ -23,10 +23,11 @@ with adapt_precision(model) as ad_model:
   _ = ad_model(input_data)
 ```
 
-`ad_model` wraps over your model, quantizes it, and then keeps note of which
-original layers contributes the most to perplexity and keeps those. When resources
-free up, it swaps quantized layers with the higher-precision ones, and swaps back
-to the quantized layers when resources are low.
+`ad_model` wraps over your model, quantizes it, and then after `num_samples`
+forward passes, keeps note of which original layers contributes the most to
+perplexity and keeps those. When resources free up, it swaps quantized layers
+with the higher-precision ones, and swaps back to the quantized layers when
+resources are low.
 
 ## Installation
 
@@ -41,8 +42,8 @@ pip install -e .
 ## More to come..
 
 - More agnostic resource monitoring (not just CPU)
-- Perplexity calculations based on first N encountered
-  samples rather than on an arbitrary dataset
+- Reduce latency burden between n_samples and n_samples + 1 iterations
+  (due to the `.get_swap_sensitivities()` call)
 - Profiling
 - Better type annotations, docstrings
 - Smarter swapping decisions rather than simply
